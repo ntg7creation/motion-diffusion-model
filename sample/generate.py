@@ -18,7 +18,8 @@ from data_loaders.humanml.utils.plot_script import plot_3d_motion
 import shutil
 from data_loaders.tensors import collate
 from moviepy.editor import clips_array
-
+# Also save as JSON for use in JavaScript
+import json
 
 def main(args=None):
     if args is None:
@@ -199,6 +200,19 @@ def main(args=None):
     np.save(npy_path,
             {'motion': all_motions, 'text': all_text, 'lengths': all_lengths,
              'num_samples': args.num_samples, 'num_repetitions': args.num_repetitions})
+    
+
+    
+    json_path = npy_path.replace('.npy', '.json')
+    json_data = {
+        'motion': all_motions.tolist(),  # convert ndarray to nested lists
+        'text': all_text,                # already a list
+    }
+    with open(json_path, 'w') as f:
+        json.dump(json_data, f)
+    print(f"saved JSON version to [{json_path}]")
+
+
     if args.dynamic_text_path != '':
         text_file_content = '\n'.join(['#'.join(s) for s in all_text])
     else:

@@ -14,89 +14,122 @@ class MDM(nn.Module):
                  ablation=None, activation="gelu", legacy=False, data_rep='rot6d', dataset='amass', clip_dim=512,
                  arch='trans_enc', emb_trans_dec=False, clip_version=None, **kargs):
         super().__init__()
+        text_encoder_type = kargs.get('text_encoder_type', None)
+        cond_mode = kargs.get('cond_mode', None)
+        print(f"[MDM INIT] dataset={dataset}, text_encoder_type={text_encoder_type}, cond_mode={cond_mode}")
 
-        self.legacy = legacy
-        self.modeltype = modeltype
-        self.njoints = njoints
-        self.nfeats = nfeats
-        self.num_actions = num_actions
-        self.data_rep = data_rep
-        self.dataset = dataset
+        self.legacy = legacy                  # Enables legacy support for older models or behaviors (#!not used in T2M typically)
+        self.modeltype = modeltype            # Identifier for the type of model (#!not used in T2M)
+        self.njoints = njoints                # Number of joints in the input motion skeleton ✅ used in T2M
+        self.nfeats = nfeats                  # Number of features per joint (e.g., 3 for XYZ, 6 for rot6d) ✅ used in T2M
+        self.num_actions = num_actions        # Number of possible action labels (#!not used in T2M — used in Action-to-Motion)
+        self.data_rep = data_rep              # Type of motion representation ('rot6d', 'hml_vec', etc.) ✅ used in T2M
+        self.dataset = dataset                # Dataset name used to adjust processing logic ('humanml', 'kit', etc.) ✅ used in T2M
 
-        self.pose_rep = pose_rep
-        self.glob = glob
-        self.glob_rot = glob_rot
-        self.translation = translation
 
-        self.latent_dim = latent_dim
+        self.pose_rep = pose_rep              # Representation of pose used internally (e.g., 'rot6d') ✅ used in T2M
+        self.glob = glob                      # Whether to include global position (root joint) ✅ used in T2M
+        self.glob_rot = glob_rot              # Whether to include global rotation of the body ✅ used in T2M
+        self.translation = translation        # Whether to include translational motion of the root joint ✅ used in T2M
 
-        self.ff_size = ff_size
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.dropout = dropout
 
-        self.ablation = ablation
-        self.activation = activation
-        self.clip_dim = clip_dim
-        self.action_emb = kargs.get('action_emb', None)
-        self.input_feats = self.njoints * self.nfeats
+        self.latent_dim = latent_dim          # Dimensionality of embeddings and transformer layers ✅ used in T2M
 
-        self.normalize_output = kargs.get('normalize_encoder_output', False)
+        self.ff_size = ff_size                # Size of the feed-forward layer inside transformer blocks ✅ used in T2M
+        self.num_layers = num_layers          # Number of layers in the transformer or GRU ✅ used in T2M
+        self.num_heads = num_heads            # Number of attention heads in the transformer ✅ used in T2M
+        self.dropout = dropout                # Dropout rate for transformer layers ✅ used in T2M
 
-        self.cond_mode = kargs.get('cond_mode', 'no_cond')
-        self.cond_mask_prob = kargs.get('cond_mask_prob', 0.)
-        self.mask_frames = kargs.get('mask_frames', False)
-        self.arch = arch
-        self.gru_emb_dim = self.latent_dim if self.arch == 'gru' else 0
-        self.input_process = InputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)
 
-        self.emb_policy = kargs.get('emb_policy', 'add')
+        self.ablation = ablation                      # Optional flag for ablation experiments (#!not used in T2M by default)
+        self.activation = activation                  # Activation function used in the transformer (e.g., 'gelu') ✅ used in T2M
+        self.clip_dim = clip_dim                      # Output dimension of the CLIP/BERT encoder (e.g., 512 or 768) ✅ used in T2M
+        self.action_emb = kargs.get('action_emb', None)  # Optional setting for action embedding (#!not used in T2M — used in A2M)
+        self.input_feats = self.njoints * self.nfeats # Flattened input feature size per frame ✅ used in T2M
 
-        self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout, max_len=kargs.get('pos_embed_max_len', 5000))
-        self.emb_trans_dec = emb_trans_dec
+        self.normalize_output = kargs.get('normalize_encoder_output', False)  # Option to normalize transformer output (#!not typically used in T2M)
 
-        self.pred_len = kargs.get('pred_len', 0)
-        self.context_len = kargs.get('context_len', 0)
-        self.total_len = self.pred_len + self.context_len
-        self.is_prefix_comp = self.total_len > 0
-        self.all_goal_joint_names = kargs.get('all_goal_joint_names', [])
+        self.cond_mode = kargs.get('cond_mode', 'no_cond')            # Type of conditioning ('text', 'action', or 'no_cond') ✅ used in T2M
+        self.cond_mask_prob = kargs.get('cond_mask_prob', 0.)         # Probability of masking condition (for classifier-free guidance) ✅ used in T2M
+        self.mask_frames = kargs.get('mask_frames', False)            # Whether to mask invalid frames (#!optional, not always used in T2M)
+        self.arch = arch                                               # Model architecture: 'trans_enc', 'trans_dec', or 'gru' ✅ used in T2M
+        self.gru_emb_dim = self.latent_dim if self.arch == 'gru' else 0  # Extra GRU embedding dimension (#!not used in T2M if using transformer)
         
-        self.multi_target_cond = kargs.get('multi_target_cond', False)
-        self.multi_encoder_type = kargs.get('multi_encoder_type', 'multi')
-        self.target_enc_layers = kargs.get('target_enc_layers', 1)
+        #hml_vec is  a custom 263-dimensional vector representation used specifically in the HumanML3D dataset
+        # Initializes the module that prepares motion input for the transformer.
+        # - self.data_rep: Specifies the type of motion representation (e.g., 'hml_vec', 'rot6d'),
+        #                  which determines how the input should be interpreted and embedded.
+        # - self.input_feats: The number of raw features per frame, typically njoints × nfeats = 263
+        #                     in HumanML3D (i.e., 22 joints with multiple features).
+        # - self.gru_emb_dim: Additional embedding space used only when GRU is selected
+        #                     (0 in T2M since transformers are used).
+        # - self.latent_dim: The transformer’s input embedding dimension (e.g., 512),
+        #                    into which all motion frames are projected.
+        #
+        # The InputProcess module flattens each motion frame to [263] and projects it into [512]
+        # so that it can be passed as a sequence into the transformer.
+
+        self.input_process = InputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)  # Prepares motion input for transformer ✅ used in T2M
+
+        self.emb_policy = kargs.get('emb_policy', 'add')              # Embedding fusion strategy: 'add' or 'concat' ✅ used in T2M
+
+        self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout, max_len=kargs.get('pos_embed_max_len', 5000))  # Positional encoding for temporal order ✅ used in T2M
+        self.emb_trans_dec = emb_trans_dec                            # Whether to inject embedding as class token (used only in 'trans_dec') (#!only used for some T2M variants)
+
+        self.pred_len = kargs.get('pred_len', 0)  # Number of frames to predict in prefix completion (✅ used in T2M prefix setting)
+        self.context_len = kargs.get('context_len', 0)  # Number of context frames provided before prediction (✅ used in T2M prefix setting)
+        self.total_len = self.pred_len + self.context_len  # Total length for prefix models (context + prediction)
+        self.is_prefix_comp = self.total_len > 0  # Flag for whether this is a prefix-completion model (✅ used in T2M with prefix mode)
+        self.all_goal_joint_names = kargs.get('all_goal_joint_names', [])  # Names of joints to be targeted during conditioning (#!not used in plain T2M)
+
+        
+        self.multi_target_cond = kargs.get('multi_target_cond', False)  # Enable multi-joint target conditioning (#!not used in standard T2M)
+        self.multi_encoder_type = kargs.get('multi_encoder_type', 'multi')  # Type of target joint encoder (multi/single/split) (#!not used in T2M)
+        self.target_enc_layers = kargs.get('target_enc_layers', 1)  # Number of layers in the target encoder (#!not used in T2M)
+
+        # Initialize the appropriate joint target conditioning module if enabled
         if self.multi_target_cond:
             if self.multi_encoder_type == 'multi':
                 self.embed_target_cond = EmbedTargetLocMulti(self.all_goal_joint_names, self.latent_dim)
             elif self.multi_encoder_type == 'single':
-               self.embed_target_cond = EmbedTargetLocSingle(self.all_goal_joint_names, self.latent_dim, self.target_enc_layers)       
+                self.embed_target_cond = EmbedTargetLocSingle(self.all_goal_joint_names, self.latent_dim, self.target_enc_layers)
             elif self.multi_encoder_type == 'split':
-               self.embed_target_cond = EmbedTargetLocSplit(self.all_goal_joint_names, self.latent_dim, self.target_enc_layers)     
-        
+                self.embed_target_cond = EmbedTargetLocSplit(self.all_goal_joint_names, self.latent_dim, self.target_enc_layers)
+
         if self.arch == 'trans_enc':
-            print("TRANS_ENC init")
-            seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
-                                                              nhead=self.num_heads,
-                                                              dim_feedforward=self.ff_size,
-                                                              dropout=self.dropout,
-                                                              activation=self.activation)
+            print("TRANS_ENC init")  # Logs architecture being initialized (transformer encoder)
+            seqTransEncoderLayer = nn.TransformerEncoderLayer(
+                d_model=self.latent_dim,             # Transformer layer input/output dim (e.g., 512)
+                nhead=self.num_heads,                # Number of attention heads
+                dim_feedforward=self.ff_size,        # Feedforward network size inside each transformer block
+                dropout=self.dropout,                # Dropout rate
+                activation=self.activation           # Activation function, e.g., GELU
+            )
 
             self.seqTransEncoder = nn.TransformerEncoder(seqTransEncoderLayer,
                                                          num_layers=self.num_layers)
         elif self.arch == 'trans_dec':
             print("TRANS_DEC init")
-            seqTransDecoderLayer = nn.TransformerDecoderLayer(d_model=self.latent_dim,
-                                                              nhead=self.num_heads,
-                                                              dim_feedforward=self.ff_size,
-                                                              dropout=self.dropout,
-                                                              activation=activation)
-            self.seqTransDecoder = nn.TransformerDecoder(seqTransDecoderLayer,
-                                                         num_layers=self.num_layers)
+            seqTransDecoderLayer = nn.TransformerDecoderLayer(
+                d_model=self.latent_dim,          # Size of input/output embeddings (e.g., 512)
+                nhead=self.num_heads,             # Number of self-attention heads
+                dim_feedforward=self.ff_size,     # Size of inner feedforward layer (e.g., 1024)
+                dropout=self.dropout,             # Dropout rate
+                activation=activation             # Activation function, e.g., 'gelu'
+            )
+            self.seqTransDecoder = nn.TransformerDecoder(
+                seqTransDecoderLayer,
+                num_layers=self.num_layers        # Number of decoder layers in the stack
+            )
         elif self.arch == 'gru':
             print("GRU init")
             self.gru = nn.GRU(self.latent_dim, self.latent_dim, num_layers=self.num_layers, batch_first=True)
         else:
-            raise ValueError('Please choose correct architecture [trans_enc, trans_dec, gru]')
+          raise ValueError('Please choose correct architecture [trans_enc, trans_dec, gru]')
 
+        # Embeds the diffusion timestep (t) into a vector matching latent_dim (e.g., 512)
+        # This embedding is added to other embeddings (like text or motion) so the model
+        # knows how much noise is present in the current training/sampling step
         self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
 
         if self.cond_mode != 'no_cond':
@@ -133,6 +166,9 @@ class MDM(nn.Module):
                                             self.nfeats)
 
         self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
+        if 'text' in self.cond_mode and not hasattr(self, 'encode_text'):
+            raise ValueError(f"[ERROR] Text conditioning is enabled (cond_mode='{self.cond_mode}'), but 'encode_text' was not set. Check text_encoder_type and dataset config.")
+
 
     def parameters_wo_clip(self):
         return [p for name, p in self.named_parameters() if not name.startswith('clip_model.')]

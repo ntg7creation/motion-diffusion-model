@@ -42,6 +42,11 @@ def main():
                               device=dist_util.dev(),)
 
     print("creating model and diffusion...")
+    if not hasattr(args, 'text_encoder_type') or args.text_encoder_type is None:
+        raise ValueError("[ERROR] '--text_encoder_type' is missing from args or not parsed correctly.")
+    else:
+        print(f"✅ text_encoder_type = {args.text_encoder_type}")
+
     model, diffusion = create_model_and_diffusion(args, data)
     model.to(dist_util.dev())
     model.rot2xyz.smpl_model.eval()

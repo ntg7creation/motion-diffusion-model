@@ -817,6 +817,8 @@ class HumanML3D(data.Dataset):
     def __len__(self):
         return self.t2m_dataset.__len__()
 
+
+
 # A wrapper class for t2m original dataset for MDM purposes
 class KIT(HumanML3D):
     def __init__(self, mode, datapath='./dataset/kit_opt.txt', split="train", **kwargs):

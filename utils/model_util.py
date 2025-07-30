@@ -16,6 +16,8 @@ def load_model_wo_clip(model, state_dict):
 
 
 def create_model_and_diffusion(args, data):
+    if not hasattr(args, 'text_encoder_type') or args.text_encoder_type is None:
+        raise ValueError("[Error] 'text_encoder_type' not found in args!")
     model = MDM(**get_model_args(args, data))
     diffusion = create_gaussian_diffusion(args)
     return model, diffusion
@@ -38,7 +40,7 @@ def get_model_args(args, data):
     nfeats = 6
     all_goal_joint_names = []
 
-    if args.dataset == 'humanml':
+    if args.dataset == 'humanml' or args.dataset == 'gigahands':
         data_rep = 'hml_vec'
         njoints = 263
         nfeats = 1

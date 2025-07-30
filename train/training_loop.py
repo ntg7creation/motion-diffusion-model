@@ -290,6 +290,7 @@ class TrainLoop:
 
 
     def run_step(self, batch, cond):
+
         self.forward_backward(batch, cond)
         self.mp_trainer.optimize(self.opt)
         self.update_average_model()
