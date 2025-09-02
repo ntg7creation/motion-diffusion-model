@@ -28,8 +28,8 @@ class EvaluatorModelWrapper(object):
 
     def __init__(self, opt):
 
-        if opt.dataset_name == 't2m':
-            opt.dim_pose = 263
+        if opt.dataset_name == 't2m' or opt.dataset_name == 'gigadataset':
+            opt.dim_pose = 126
         elif opt.dataset_name == 'kit':
             opt.dim_pose = 251
         else:
@@ -131,7 +131,7 @@ class EvaluatorMDMWrapper(object):
             'max_text_len': 20,
             'dim_text_hidden': 512,
             'dim_coemb_hidden': 512,
-            'dim_pose': 263 if dataset_name == 'humanml' else 251,
+            'dim_pose': 126 if dataset_name == 'humanml' else 126,
             'dim_movement_enc_hidden': 512,
             'dim_movement_latent': 512,
             'checkpoints_dir': '.',

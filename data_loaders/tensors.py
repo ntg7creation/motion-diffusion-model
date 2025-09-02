@@ -76,6 +76,11 @@ def t2m_collate(batch, target_batch_size):
         'lengths': b[5],
         'key': b[7] if len(b) > 7 else None,
     } for b in full_batch]
+    # Debug print shapes and a sample
+    # for i, ab in enumerate(adapted_batch[:2]):  # only print first 2 to avoid flooding
+        # print(f"[DEBUG] Batch {i}: inp shape={ab['inp'].shape}, "
+        #     f"text={ab['text']}, tokens={ab['tokens']}, lengths={ab['lengths']}, key={ab['key']}")
+
     return collate(adapted_batch)
 
 

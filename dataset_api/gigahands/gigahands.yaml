@@ -1,0 +1,95 @@
+# -----------------------------------------------------------------------------
+# This config replicates the original CLI run:
+# python -m train.train_mdm_test \
+#     --dataset gigahands \
+#     --save_dir save/test_run \
+#     --diffusion_steps 50 \
+#     --arch trans_dec \
+#     --text_encoder_type bert \
+#     --mask_frames \
+#     --use_ema
+# -----------------------------------------------------------------------------
+
+cuda: True
+device: 0
+seed: 10
+batch_size: 64
+train_platform_type: NoPlatform
+external_mode: False
+
+dataset: gigahands
+data_dir:
+
+# --- DMVB control ---
+dmvb_mode: "select_indices" # "humanml263" | "select_indices"
+dmvb_preset: "root+5bases" # our tiny preset (see below)
+include_root_velocity: false # set true later to add +3 channels
+
+# If you already know exact channel indices, you can override:
+dmvb_indices: null # e.g., [0,1,2,  30,31,32,  33,34,35,  36,37,38,  39,40,41,  42,43,44]
+
+# --- single-clip debug (forces same sample every batch) ---
+force_same_sample: true # repeat one clip for all iterations
+force_sample_index: 0 # which item to repeat
+
+arch: trans_dec
+text_encoder_type: bert
+emb_trans_dec: False
+layers: 8
+latent_dim: 512
+cond_mask_prob: 0.1
+mask_frames: True
+lambda_rcxyz: 0.0
+lambda_vel: 0.0
+lambda_fc: 0.0
+lambda_target_loc: 0.0
+unconstrained: False
+pos_embed_max_len: 5000
+use_ema: True
+
+multi_target_cond: False
+multi_encoder_type: single
+target_enc_layers: 1
+
+context_len: 0
+pred_len: 0
+
+noise_schedule: cosine
+diffusion_steps: 50
+sigma_small: True
+
+save_dir: save/test_run_132
+overwrite: False
+lr: 0.0001
+weight_decay: 0.0
+lr_anneal_steps: 0
+
+eval_batch_size: 32
+eval_split: test
+eval_during_training: False
+eval_rep_times: 3
+eval_num_samples: 1000
+
+log_interval: 1000
+gen_during_training: true
+outputsave_interval: 1000
+save_interval: 1000
+num_steps: 600000
+num_frames: 60
+resume_checkpoint:
+
+gen_during_training: False
+gen_num_samples: 3
+gen_num_repetitions: 2
+gen_guidance_param: 2.5
+
+avg_model_beta: 0.9999
+adam_beta2: 0.999
+
+target_joint_names: DIMP_FINAL
+autoregressive: False
+autoregressive_include_prefix: False
+autoregressive_init: data
+
+DMVB_size: 126 # default, change later
+DMVB_layout: root+5

@@ -42,7 +42,7 @@ def get_model_args(args, data):
 
     if args.dataset == 'humanml' or args.dataset == 'gigahands':
         data_rep = 'hml_vec'
-        njoints = 263
+        njoints = args.DMVB_size
         nfeats = 1
         all_goal_joint_names = ['pelvis'] + HML_EE_JOINT_NAMES
     elif args.dataset == 'kit':

@@ -331,6 +331,8 @@ class Text2MotionDatasetV2(data.Dataset):
             tokens = tokens[:self.opt.max_text_len]
             tokens = ['sos/OTHER'] + tokens + ['eos/OTHER']
             sent_len = len(tokens)
+
+            
         pos_one_hots = []
         word_embeddings = []
         for token in tokens:
@@ -816,8 +818,6 @@ class HumanML3D(data.Dataset):
 
     def __len__(self):
         return self.t2m_dataset.__len__()
-
-
 
 # A wrapper class for t2m original dataset for MDM purposes
 class KIT(HumanML3D):

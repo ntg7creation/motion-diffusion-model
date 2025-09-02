@@ -33,7 +33,7 @@ def get_collate_fn(name, hml_mode='train', pred_len=0, batch_size=1):
     if hml_mode == 'gt':
         from data_loaders.humanml.data.dataset import collate_fn as t2m_eval_collate
         return t2m_eval_collate
-    if name in ["humanml", "kit", "gigahands"]:
+    if name in ["humanml", "kit", "gigahands"]: 
         if pred_len > 0:
             return lambda x: t2m_prefix_collate(x, pred_len=pred_len)
         return lambda x: t2m_collate(x, batch_size)
@@ -51,8 +51,8 @@ def get_dataset(name, num_frames, split='train', hml_mode='train', abs_path='.',
         dataset = DATA(
             mode=hml_mode,
             annotation_file=r"D:\repos\mdm_custom_training\converted_motions\annotations_v2.jsonl",
-            root_dir=r"D:\repos\mdm_custom_training\converted_motions\hand_poses",
-            mean_std_dir=r"D:\repos\mdm_custom_training\converted_motions\hand_poses\norm_stats",
+            root_dir=r"D:\repos\mdm_custom_training\converted_motions\hand_poses_dmvb",
+            mean_std_dir=r"D:\repos\mdm_custom_training\converted_motions\hand_poses_dmvb\norm_stats",
             split=split,
             num_frames=num_frames,
             device=device

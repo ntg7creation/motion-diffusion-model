@@ -421,7 +421,7 @@ def recover_from_rot(data, joints_num, skeleton):
 
 def recover_rot(data):
     # dataset [bs, seqlen, 263/251] HumanML/KIT
-    joints_num = 22 if data.shape[-1] == 263 else 21
+    joints_num = 22 if data.shape[-1] == 126 else 21
     r_rot_quat, r_pos = recover_root_rot_pos(data)
     r_pos_pad = torch.cat([r_pos, torch.zeros_like(r_pos)], dim=-1).unsqueeze(-2)
     r_rot_cont6d = quaternion_to_cont6d(r_rot_quat)
@@ -431,6 +431,7 @@ def recover_rot(data):
     cont6d_params = torch.cat([r_rot_cont6d, cont6d_params], dim=-1)
     cont6d_params = cont6d_params.view(-1, joints_num, 6)
     cont6d_params = torch.cat([cont6d_params, r_pos_pad], dim=-2)
+    print("[recover_rot] cont6d_params:", cont6d_params.shape)
     return cont6d_params
 
 

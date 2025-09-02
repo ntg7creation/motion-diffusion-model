@@ -8,6 +8,38 @@ from tqdm import tqdm
 from data_loaders.humanml.utils.word_vectorizer import WordVectorizer
 
 
+def build_dmvb(raw_motion: np.ndarray, layout_type: str = "full") -> np.ndarray:
+    # print(raw_motion.shape)
+    if True: #layout_type == "full":
+        return raw_motion
+
+    elif False:#layout_type == "root+5":
+        joint_indices = [0, 1, 5, 9, 13, 17]  # root + base of each finger
+        d_per_joint = 3
+        frame_dim = raw_motion.shape[1]
+        T = raw_motion.shape[0]
+
+        if frame_dim < 63:
+            raise ValueError("Expected raw_motion to have at least 21 joints (63 dims)")
+
+        joint_data = [raw_motion[:, j * d_per_joint : (j + 1) * d_per_joint] for j in joint_indices]
+        # print(f"[build_dmvb] Selected joints indices: {joint_indices}, each with {d_per_joint} dims, total frame_dim={frame_dim}")
+        return np.concatenate(joint_data, axis=1)
+
+    elif layout_type == "2d_only":
+        raise NotImplementedError("DMVB layout '2d_only' is not implemented yet.")
+
+    elif layout_type == "velocity_only":
+        raise NotImplementedError("DMVB layout 'velocity_only' is not implemented yet.")
+
+    elif layout_type == "flattened_xyz+vel":
+        raise NotImplementedError("DMVB layout 'flattened_xyz+vel' is not implemented yet.")
+
+    else:
+        raise NotImplementedError(f"DMVB layout '{layout_type}' is not implemented.")
+    
+
+
 
 class GigaHandsT2M(Dataset):
     """
@@ -26,19 +58,35 @@ class GigaHandsT2M(Dataset):
 
     This class is intended to be used internally by a wrapper that conforms to MDM's dataset expectations.
     """
-    def __init__(self, root_dir, annotation_file, mean_std_dir, side='left', split='train', device='cpu',num_frames=120):
+    def __init__(self, root_dir, annotation_file, mean_std_dir, 
+                 side='left', split='train', device='cpu',
+                 num_frames=120, dmvb_size=126, dmvb_layout='full'):
         assert side in ['left', 'right']
         self.side = side
         self.root_dir = root_dir
         self.device = device
         self.num_frames = num_frames
         self.fixed_len = num_frames
+        self.dmvb_size = dmvb_size
         self.max_text_len = 40
+        self.dmvb_layout = dmvb_layout
+        # self.w_vectorizer = WordVectorizer(encoder_type='bert')
        
 
 
         self.mean = np.load(pjoin(mean_std_dir, f'mean_{side}.npy'))
         self.std = np.load(pjoin(mean_std_dir, f'std_{side}.npy'))
+
+        
+        # Derive trimmed stats using layout
+        dummy = np.expand_dims(self.mean, axis=0)  # shape [1, D]
+        trimmed_mean = build_dmvb(dummy, layout_type=dmvb_layout)[0]
+
+        dummy = np.expand_dims(self.std, axis=0)
+        trimmed_std = build_dmvb(dummy, layout_type=dmvb_layout)[0]
+
+        self.mean = trimmed_mean
+        self.std = trimmed_std
 
         self.mean_gpu = torch.tensor(self.mean).to(device)[None, :, None, None]
         self.std_gpu = torch.tensor(self.std).to(device)[None, :, None, None]
@@ -64,14 +112,19 @@ class GigaHandsT2M(Dataset):
         assert len(self.samples) > 0, "No valid samples found."
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.samples)    
 
 
 
     def __getitem__(self, idx):
-        motion_path, text = self.samples[idx]
+        # keep the text of the current sample
+        _, text = self.samples[idx]
+        # but always load the motion of the first sample
+        motion_path, _ = self.samples[0]
         motion = np.load(motion_path).astype(np.float32)
 
+        motion = build_dmvb(motion, layout_type=self.dmvb_layout)
+        # print (f"[DEBUG] Loaded motion from {motion_path} with shape {motion.shape}")
         # Normalize
         motion = (motion - self.mean) / (self.std + 1e-8)
 
@@ -79,7 +132,7 @@ class GigaHandsT2M(Dataset):
         if self.fixed_len > 0:
             T = motion.shape[0]
             if T >= self.fixed_len:
-                start = np.random.randint(0, T - self.fixed_len + 1)
+                start = 0  #  np.random.randint(0, T - self.fixed_len + 1)
                 motion = motion[start:start + self.fixed_len]
             else:
                 pad = np.zeros((self.fixed_len - T, motion.shape[1]), dtype=np.float32)
@@ -88,25 +141,42 @@ class GigaHandsT2M(Dataset):
         else:
             m_length = motion.shape[0]
 
-        # BERT-compatible dummy tokenization
+        # BERT-compatible tokenization
         tokens = text.split()
         tokens = ['sos/OTHER'] + tokens[:self.max_text_len] + ['eos/OTHER']
         sent_len = len(tokens)
         tokens += ['unk/OTHER'] * (self.max_text_len + 2 - len(tokens))
 
-        # Dummy embeddings and POS (you can skip glove)
-        word_embeddings = np.random.randn(self.max_text_len + 2, 300).astype(np.float32)
-        pos_one_hots = np.zeros((self.max_text_len + 2, 49), dtype=np.float32)
+        # Real word embeddings and POS one-hots
+        word_embeddings = []
+        pos_one_hots = []
+        # for token in tokens:
+            # word_emb, pos_oh = self.w_vectorizer[token]
+            # word_embeddings.append(word_emb[None, :])
+        #     pos_one_hots.append(pos_oh[None, :])
+
+        # word_embeddings = np.concatenate(word_embeddings, axis=0)
+        # pos_one_hots = np.concatenate(pos_one_hots, axis=0)
+
+
+        motion_tensor = torch.from_numpy(motion)
+
+        # print(f"[DEBUG] __getitem__ returning motion with shape={motion_tensor.shape}, "
+        #     f"text='{text}', sent_len={sent_len}, m_length={m_length}, key={'_'.join(tokens)}")
 
         return (
-            torch.from_numpy(word_embeddings),          # [77, 300]
-            torch.from_numpy(pos_one_hots),             # [77, 49]
-            text,                                        # caption
-            sent_len,                                    # caption length
-            torch.from_numpy(motion),                   # [T, D]
-            m_length,                                    # length
-            '_'.join(tokens)                             # tokenized key
+            None,
+            None,
+            text,
+            sent_len,
+            motion_tensor,   # [T, D]
+            m_length,
+            '_'.join(tokens)
         )
+
+    
+    def inv_transform(self, data):
+        return data * (self.std + 1e-8) + self.mean
 
 
 
@@ -118,56 +188,60 @@ class GigaHandsT2M(Dataset):
 
 
 class GigaHandsML3D(Dataset):
-    def __init__(self, mode, datapath=None, split="train", **kwargs):
+    def __init__(self, mode, datapath=None, split="train", dmvb_size=126, **kwargs):
         self.mode = mode
         self.dataset_name = 'gigahands'
         self.dataname = 'gigahands'
+        self.dmvb_size = dmvb_size
+        self.dmvb_layout = kwargs.get('dmvb_layout', 'full')
+        self.device = kwargs.get('device', 'cpu')
 
-        # Device
-        device = kwargs.get('device', 'cpu')
-        self.device = device
+        # Paths (can be overridden via kwargs)
+        self.root_dir = kwargs.get('root_dir', r"D:\repos\mdm_custom_training\converted_motions\hand_poses_dmvb")
+        self.annotation_file = kwargs.get('annotation_file', r"D:\repos\mdm_custom_training\converted_motions\annotations_v2.jsonl")
+        self.mean_std_dir = kwargs.get('mean_std_dir', r"D:\repos\mdm_custom_training\converted_motions\hand_poses_dmvb\norm_stats")
 
-        # Absolute paths (edit if location changes)
-        root_dir = r"D:\repos\mdm_custom_training\converted_motions\hand_poses"
-        annotation_file = r"D:\repos\mdm_custom_training\converted_motions\annotations_v2.jsonl"
-        mean_std_dir = r"D:\repos\mdm_custom_training\converted_motions\hand_poses\norm_stats"
-
-        # Optional values
-        fixed_len = kwargs.get('fixed_len', 0)
-        use_cache = kwargs.get('use_cache', True)
+        self.fixed_len = kwargs.get('fixed_len', 0)
+        self.use_cache = kwargs.get('use_cache', True)
+        self.side = kwargs.get('side', 'left')
 
         # Load mean/std
-        side = 'left'  # or pass it as a parameter if needed
-
-        mean = np.load(pjoin(mean_std_dir, f'Mean_{side}.npy'))
-        std = np.load(pjoin(mean_std_dir, f'Std_{side}.npy'))
-
-        self.mean = mean
-        self.std = std
+        mean_path = pjoin(self.mean_std_dir, f'mean_{self.side}.npy')
+        std_path = pjoin(self.mean_std_dir, f'std_{self.side}.npy')
+        self.mean = np.load(mean_path)
+        self.std = np.load(std_path)
 
         # Fake opt to mimic original behavior
         self.opt = type('', (), {})()
-        self.opt.fixed_len = fixed_len
-        self.opt.max_motion_length = fixed_len if fixed_len > 0 else 196
+        self.opt.fixed_len = self.fixed_len
+        self.opt.max_motion_length = self.fixed_len if self.fixed_len > 0 else 196
         self.opt.unit_length = 4
         self.opt.max_text_len = 64
         self.opt.disable_offset_aug = False
 
-        # Load GigaHandsT2M with left hand
+        # Load GigaHandsT2M
         self.t2m_dataset = GigaHandsT2M(
-            root_dir=root_dir,
-            annotation_file=annotation_file,
-            mean_std_dir=mean_std_dir,
+            root_dir=self.root_dir,
+            annotation_file=self.annotation_file,
+            mean_std_dir=self.mean_std_dir,
             split=split,
-            side='left',  # <-- make sure to use only left hand
-            num_frames=fixed_len if fixed_len > 0 else 196,
-            device=device
+            side=self.side,
+            num_frames=self.fixed_len if self.fixed_len > 0 else 196,
+            device=self.device,
+            dmvb_size=self.dmvb_size,
+            dmvb_layout=self.dmvb_layout,
         )
 
-        self.mean_gpu = torch.tensor(mean).to(device)[None, :, None, None]
-        self.std_gpu = torch.tensor(std).to(device)[None, :, None, None]
+        self.mean_gpu = torch.tensor(self.mean).to(self.device)[None, :, None, None]
+        self.std_gpu = torch.tensor(self.std).to(self.device)[None, :, None, None]
 
-        assert len(self.t2m_dataset) > 1, 'GigaHands dataset appears empty.'
+        assert len(self.t2m_dataset) > 0, 'GigaHands dataset appears empty.'
+
+    def __getitem__(self, idx):
+        return self.t2m_dataset[idx]
+
+    def __len__(self):
+        return len(self.t2m_dataset)
 
     def __getitem__(self, idx):
         return self.t2m_dataset[idx]

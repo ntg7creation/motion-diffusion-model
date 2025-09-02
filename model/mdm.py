@@ -14,6 +14,20 @@ class MDM(nn.Module):
                  ablation=None, activation="gelu", legacy=False, data_rep='rot6d', dataset='amass', clip_dim=512,
                  arch='trans_enc', emb_trans_dec=False, clip_version=None, **kargs):
         super().__init__()
+
+        # print("🧠 Initializing MDM model with:")
+        # print(f"  🔹 modeltype: {modeltype}")
+        # print(f"  🔹 njoints: {njoints}")
+        # print(f"  🔹 nfeats: {nfeats}")
+        # print(f"  🔹 total input features: {njoints * nfeats}")
+        # print(f"  🔹 latent_dim: {latent_dim}")
+        # print(f"  🔹 dataset: {dataset}")
+        # print(f"  🔹 arch: {arch}")
+        # print(f"  🔹 text encoder: {clip_version or 'None'}")
+        # print(f"  🔹 emb_trans_dec: {emb_trans_dec}")
+        # print(f"  🔹 Additional kwargs: {kargs}")
+
+
         text_encoder_type = kargs.get('text_encoder_type', None)
         cond_mode = kargs.get('cond_mode', None)
         print(f"[MDM INIT] dataset={dataset}, text_encoder_type={text_encoder_type}, cond_mode={cond_mode}")
@@ -68,6 +82,7 @@ class MDM(nn.Module):
         #
         # The InputProcess module flattens each motion frame to [263] and projects it into [512]
         # so that it can be passed as a sequence into the transformer.
+        print(f"🧩 MDM: Creating InputProcess with input_feats={self.input_feats}, data_rep={self.data_rep}, njoints={self.njoints}, nfeats={self.nfeats}")
 
         self.input_process = InputProcess(self.data_rep, self.input_feats+self.gru_emb_dim, self.latent_dim)  # Prepares motion input for transformer ✅ used in T2M
 
@@ -139,12 +154,7 @@ class MDM(nn.Module):
                 
                 self.text_encoder_type = kargs.get('text_encoder_type', 'clip')
                 
-                if self.text_encoder_type == "clip":
-                    print('Loading CLIP...')
-                    self.clip_version = clip_version
-                    self.clip_model = self.load_and_freeze_clip(clip_version)
-                    self.encode_text = self.clip_encode_text
-                elif self.text_encoder_type == 'bert':
+                if self.text_encoder_type == 'bert':
                     assert self.arch == 'trans_dec'
                     # assert self.emb_trans_dec == False # passing just the time embed so it's fine
                     print("Loading BERT...")
@@ -165,7 +175,7 @@ class MDM(nn.Module):
         self.output_process = OutputProcess(self.data_rep, self.input_feats, self.latent_dim, self.njoints,
                                             self.nfeats)
 
-        self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
+        self.rot2xyz = None  # Not needed for GigaHands
         if 'text' in self.cond_mode and not hasattr(self, 'encode_text'):
             raise ValueError(f"[ERROR] Text conditioning is enabled (cond_mode='{self.cond_mode}'), but 'encode_text' was not set. Check text_encoder_type and dataset config.")
 
@@ -227,6 +237,7 @@ class MDM(nn.Module):
         x: [batch_size, njoints, nfeats, max_frames], denoted x_t in the paper
         timesteps: [batch_size] (int)
         """
+        # print("[MDM]:",x.shape)
         bs, njoints, nfeats, nframes = x.shape
         time_emb = self.embed_timestep(timesteps)  # [1, bs, d]
 
@@ -321,12 +332,14 @@ class MDM(nn.Module):
 
     def _apply(self, fn):
         super()._apply(fn)
-        self.rot2xyz.smpl_model._apply(fn)
+        if self.rot2xyz is not None:
+            self.rot2xyz.smpl_model._apply(fn)
 
 
     def train(self, *args, **kwargs):
         super().train(*args, **kwargs)
-        self.rot2xyz.smpl_model.train(*args, **kwargs)
+        if self.rot2xyz is not None:
+            self.rot2xyz.smpl_model.train(*args, **kwargs)
 
 
 class PositionalEncoding(nn.Module):
@@ -369,6 +382,7 @@ class TimestepEmbedder(nn.Module):
 class InputProcess(nn.Module):
     def __init__(self, data_rep, input_feats, latent_dim):
         super().__init__()
+        print(f"🧩 InputProcess: data_rep={data_rep}, input_feats={input_feats}, latent_dim={latent_dim}")
         self.data_rep = data_rep
         self.input_feats = input_feats
         self.latent_dim = latent_dim

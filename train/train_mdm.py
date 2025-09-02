@@ -6,6 +6,8 @@ Train a diffusion model on images.
 import os
 import json
 from utils.fixseed import fixseed
+from dataset_api.dataset_registry import DatasetInterfaceRegistry
+
 from utils.parser_util import train_args
 from utils import dist_util
 from train.training_loop import TrainLoop
@@ -22,8 +24,6 @@ def main():
 
     if args.save_dir is None:
         raise FileNotFoundError('save_dir was not specified.')
-    elif os.path.exists(args.save_dir) and not args.overwrite:
-        raise FileExistsError('save_dir [{}] already exists.'.format(args.save_dir))
     elif not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
     args_path = os.path.join(args.save_dir, 'args.json')
@@ -49,7 +49,8 @@ def main():
 
     model, diffusion = create_model_and_diffusion(args, data)
     model.to(dist_util.dev())
-    model.rot2xyz.smpl_model.eval()
+    if model.rot2xyz is not None:
+        model.rot2xyz.smpl_model.eval()
 
     print('Total params: %.2fM' % (sum(p.numel() for p in model.parameters_wo_clip()) / 1000000.0))
     print("Training...")

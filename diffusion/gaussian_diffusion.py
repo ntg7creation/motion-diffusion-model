@@ -1346,12 +1346,16 @@ class GaussianDiffusion:
                                             model_kwargs['y']['target_joint_names'], model_kwargs['y']['is_heading'])
                 terms["target_loc"] = masked_goal_l2(pred_target, ref_target, model_kwargs['y'], model.all_goal_joint_names)
                             
+            #TODO bring back old loss calculation 
 
-            terms["loss"] = terms["rot_mse"] + terms.get('vb', 0.) +\
-                            (self.lambda_vel * terms.get('vel_mse', 0.)) +\
-                            (self.lambda_rcxyz * terms.get('rcxyz_mse', 0.)) + \
-                            (self.lambda_target_loc * terms.get('target_loc', 0.)) + \
-                            (self.lambda_fc * terms.get('fc', 0.))
+            # terms["loss"] = terms["rot_mse"] + terms.get('vb', 0.) +\
+            #                 (self.lambda_vel * terms.get('vel_mse', 0.)) +\
+            #                 (self.lambda_rcxyz * terms.get('rcxyz_mse', 0.)) + \
+            #                 (self.lambda_target_loc * terms.get('target_loc', 0.)) + \
+            #                 (self.lambda_fc * terms.get('fc', 0.))
+
+            
+            terms["loss"] = terms["rot_mse"]
 
         else:
             raise NotImplementedError(self.loss_type)
